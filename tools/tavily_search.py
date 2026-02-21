@@ -1,4 +1,5 @@
 import os
+import hashlib
 from typing import List, Dict, Optional
 from tavily import TavilyClient
 
@@ -23,15 +24,6 @@ class TavilyFlightSearch:
     ) -> List[Dict]:
         """
         Search for flights between origin and destination on a specific date.
-        
-        Args:
-            origin: Departure city or airport code
-            destination: Arrival city or airport code
-            date: Travel date (YYYY-MM-DD or natural language)
-            max_results: Maximum number of results to return (default: 5)
-        
-        Returns:
-            List of flight dictionaries with airline, times, and price
         """
         query = f"flights from {origin} to {destination} on {date}"
         
@@ -45,28 +37,35 @@ class TavilyFlightSearch:
         except Exception as e:
             return {"error": f"Search failed: {str(e)}"}
         
-        flights = self._parse_results(response)
+        flights = self._parse_results(response, origin, destination, date)
         return flights[:max_results]
     
-    def _parse_results(self, response: Dict) -> List[Dict]:
+    def _parse_results(self, response: Dict, origin: str, destination: str, date: str) -> List[Dict]:
         """Parse Tavily response into structured flight data."""
         flights = []
         
-        for result in response.get("results", []):
-            flight = self._extract_flight_info(result)
+        for i, result in enumerate(response.get("results", []), 1):
+            flight = self._extract_flight_info(result, i, origin, destination, date)
             if flight:
                 flights.append(flight)
         
         return flights
     
-    def _extract_flight_info(self, result: Dict) -> Optional[Dict]:
+    def _extract_flight_info(self, result: Dict, index: int, origin: str, destination: str, date: str) -> Optional[Dict]:
         """Extract flight information from a search result."""
         content = result.get("content", "")
         url = result.get("url", "")
         
+        # Generate a unique flight ID based on route, date, and index
+        flight_id = f"FL{index}-{origin[:3].upper()}-{destination[:3].upper()}-{date}"
+        
         flight = {
+            "flight_id": flight_id,
+            "origin": origin,
+            "destination": destination,
+            "date": date,
             "source": url,
-            "details": content[:500]
+            "details": content[:300]
         }
         
         return flight
@@ -81,9 +80,12 @@ def format_flights_for_display(flights: List[Dict]) -> str:
         return "No flights found for your search criteria."
     
     output = []
-    for i, flight in enumerate(flights, 1):
-        output.append(f"\n{i}. Flight Option:")
-        output.append(f"   Source: {flight.get('source', 'Unknown')}")
-        output.append(f"   Details: {flight.get('details', 'No details available')}")
+    for flight in flights:
+        output.append(f"\n**Flight ID: {flight.get('flight_id')}**")
+        output.append(f"Route: {flight.get('origin')} → {flight.get('destination')}")
+        output.append(f"Date: {flight.get('date')}")
+        output.append(f"Details: {flight.get('details', 'No details available')[:200]}")
+        output.append(f"Source: {flight.get('source', 'Unknown')}")
+        output.append("-" * 40)
     
     return "\n".join(output)

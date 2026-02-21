@@ -2,3 +2,5 @@ langgraph
 langchain-ollama
 tavily-python
 python-dotenv
+fastapi
+uvicorn

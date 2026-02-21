@@ -121,8 +121,9 @@ def should_continue(state: AgentState):
 
 # Create a custom tool node that handles logic and interruption
 class HumanApprovalToolNode:
-    def __init__(self, tools):
+    def __init__(self, tools, interactive: bool = True):
         self.tools_by_name = {tool.name: tool for tool in tools}
+        self.interactive = interactive
 
     def __call__(self, state: AgentState):
         messages = state["messages"]
@@ -142,24 +143,29 @@ class HumanApprovalToolNode:
             
             # === THE APPROVAL GATE ===
             if tool_name == "book_flight":
-                print("\n⚠️  ACTION REQUIRED: The agent wants to book a flight.")
-                print(f"   Flight ID: {tool_args.get('flight_id')}")
-                print(f"   Passenger: {tool_args.get('user_name')}")
-                
-                user_input = input("   Do you approve this booking? (yes/no): ").strip().lower()
-                
-                if user_input == "yes":
-                    # Execute the tool
-                    result = self.tools_by_name[tool_name].invoke(tool_args)
-                    new_messages.append(
-                        ToolMessage(content=result, tool_call_id=tool_call["id"])
-                    )
+                if self.interactive:
+                    print("\n⚠️  ACTION REQUIRED: The agent wants to book a flight.")
+                    print(f"   Flight ID: {tool_args.get('flight_id')}")
+                    print(f"   Passenger: {tool_args.get('user_name')}")
+                    
+                    user_input = input("   Do you approve this booking? (yes/no): ").strip().lower()
+                    
+                    if user_input == "yes":
+                        # Execute the tool
+                        result = self.tools_by_name[tool_name].invoke(tool_args)
+                        new_messages.append(
+                            ToolMessage(content=result, tool_call_id=tool_call["id"])
+                        )
+                    else:
+                        # Reject the tool call
+                        print("   ❌ Booking rejected by user.")
+                        new_messages.append(
+                            ToolMessage(content="User rejected the booking.", tool_call_id=tool_call["id"])
+                        )
                 else:
-                    # Reject the tool call
-                    print("   ❌ Booking rejected by user.")
-                    new_messages.append(
-                        ToolMessage(content="User rejected the booking.", tool_call_id=tool_call["id"])
-                    )
+                    # Non-interactive mode: don't process booking, let API handle it
+                    # Don't add any ToolMessage so the tool call remains pending
+                    pass
             else:
                 # For non-sensitive tools (search), just run them
                 result = self.tools_by_name[tool_name].invoke(tool_args)
@@ -175,9 +181,13 @@ class HumanApprovalToolNode:
                 
         return {"messages": new_messages}
 
-tool_node = HumanApprovalToolNode(tools)
+# Interactive tool node for CLI
+tool_node = HumanApprovalToolNode(tools, interactive=True)
 
-# Recompile graph with custom tool node
+# Non-interactive tool node for API
+tool_node_api = HumanApprovalToolNode(tools, interactive=False)
+
+# Recompile graph with custom tool node (CLI version)
 workflow = StateGraph(AgentState)
 workflow.add_node("agent", agent_node)
 workflow.add_node("tools", tool_node)
@@ -188,6 +198,17 @@ workflow.add_edge("tools", "agent")
 # Add memory for conversation history
 checkpointer = MemorySaver()
 app = workflow.compile(checkpointer=checkpointer)
+
+# API version with non-interactive tool node
+workflow_api = StateGraph(AgentState)
+workflow_api.add_node("agent", agent_node)
+workflow_api.add_node("tools", tool_node_api)
+workflow_api.set_entry_point("agent")
+workflow_api.add_conditional_edges("agent", should_continue, {"tools": "tools", END: END})
+workflow_api.add_edge("tools", "agent")
+
+checkpointer_api = MemorySaver()
+app_api = workflow_api.compile(checkpointer=checkpointer_api)
 
 # ==========================================
 # 5. Run the Chat Loop (CLI)
