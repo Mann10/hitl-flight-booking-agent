@@ -316,6 +316,8 @@ def book_flight(
 
 **Note:** This tool triggers the human approval gate before execution.
 
+> ⚠️ **Important:** This is a demonstration/POC project. The booking tool only returns a success string and does **not** perform actual payment processing or real flight reservations. No payment integration has been implemented.
+
 ### Classes
 
 #### `TavilyFlightSearch`
